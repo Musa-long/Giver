@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Admin — Giveaway Control</title>
+<link rel="icon" href="./icon.svg" />
+<style>
+  :root{--bg:#0B0E11;--panel:#1E2329;--panel2:#2B3139;--line:#2B3139;--y:#F0B90B;--text:#EAECEF;--muted:#848E9C;--green:#0ECB81;--red:#F6465D}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.55 system-ui,-apple-system,Arial,sans-serif}
+  .wrap{max-width:840px;margin:0 auto;padding:28px 18px 60px}
+  h1{font-size:20px;margin:0 0 4px}
+  .muted{color:var(--muted);font-size:13px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;margin-top:16px}
+  label{display:block;font-size:12px;color:var(--muted);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.5px}
+  input{width:100%;background:#15191D;border:1px solid var(--line);border-radius:8px;color:var(--text);padding:9px 11px;font:12.5px ui-monospace,Menlo,monospace}
+  input:focus{outline:none;border-color:var(--y)}
+  button{background:var(--y);color:#1E2329;border:0;border-radius:8px;padding:10px 16px;font-weight:700;cursor:pointer;font-family:inherit}
+  button.alt{background:var(--panel2);color:var(--text)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+  .stat{background:#15191D;border:1px solid var(--line);border-radius:9px;padding:12px;text-align:center}
+  .stat b{display:block;color:var(--y);font-size:18px}
+  .stat span{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+  table{width:100%;border-collapse:collapse;font-size:12px;margin-top:10px}
+  th,td{text-align:left;padding:7px 6px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase}
+  td.mono{font-family:ui-monospace,Menlo,monospace;color:var(--muted);word-break:break-all}
+  .bar{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+  .ok{color:var(--green);font-size:12.5px;margin-top:10px}
+  .err{color:var(--red);font-size:12.5px;margin-top:10px;word-break:break-all}
+  .hint{font-size:11.5px;color:var(--muted);margin-top:3px}
+  @media(max-width:600px){.grid,.stats{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Giveaway Control</h1>
+  <div class="muted">Receiving wallets, eligibility and stats. Never public.</div>
+
+  <div class="card" id="login">
+    <label>Admin key</label>
+    <input id="key" type="password" placeholder="ADMIN_KEY from your environment" />
+    <div class="bar"><button id="go">Unlock</button></div>
+  </div>
+
+  <div id="app" style="display:none">
+    <div class="card">
+      <div class="stats">
+        <div class="stat"><b id="stW">0</b><span>Wallets</span></div>
+        <div class="stat"><b id="stU">0</b><span>Slots used</span></div>
+        <div class="stat"><b id="stV">$0</b><span>Volume</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <label>Receiving wallets</label>
+      <div class="hint">Comma-separate several addresses to rotate round-robin. Blank disables that network.</div>
+      <div class="grid" id="fields"></div>
+      <div class="grid">
+        <div><label>Minimum balance (USD)</label><input id="minUsd" type="number" step="0.5" /></div>
+        <div><label>Gas floor per network (USD)</label><input id="gasFloorUsd" type="number" step="0.1" /></div>
+      </div>
+      <div class="grid">
+        <div><label>Slot cap</label><input id="slots" type="number" /></div>
+        <div><label>Pre-filled claimed count</label><input id="seedUsed" type="number" /></div>
+      </div>
+      <div class="bar">
+        <button id="save">Save configuration</button>
+        <button class="alt" id="export">Export CSV</button>
+        <button class="alt" id="reset">Reset stats</button>
+      </div>
+      <div class="ok" id="msg"></div>
+      <div class="err" id="err"></div>
+    </div>
+
+    <div class="card">
+      <label>Recent wallets</label>
+      <table><thead><tr><th>Address</th><th>USD</th><th>Assets</th></tr></thead><tbody id="rows"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let KEY = localStorage.getItem('adm') || '';
+$('#key').value = KEY;
+$('#go').onclick = () => { KEY = $('#key').value.trim(); localStorage.setItem('adm', KEY); load(); };
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { 'content-type': 'application/json', 'x-admin-key': KEY } });
+  if (res.status === 401) { alert('Wrong admin key'); throw new Error('401'); }
+  return res;
+}
+
+async function load() {
+  const cfg = await (await api('/api/admin/config')).json();
+  $('#login').style.display = 'none';
+  $('#app').style.display = 'block';
+  $('#stW').textContent = cfg.wallets;
+  $('#stU').textContent = cfg.used;
+  $('#stV').textContent = '$' + (cfg.totalUsd || 0).toFixed(2);
+  $('#minUsd').value = cfg.minUsd;
+  $('#gasFloorUsd').value = cfg.gasFloorUsd;
+  $('#slots').value = cfg.slots;
+  $('#seedUsed').value = cfg.seedUsed;
+  $('#fields').innerHTML = cfg.chains.map(c => `
+    <div><label>${c.name} (${c.symbol})</label>
+    <input data-k="${c.key}" value="${cfg.received[c.key] || ''}" placeholder="0x… / T…" /></div>`).join('');
+
+  const wallets = await (await api('/api/admin/wallets')).json();
+  $('#rows').innerHTML = wallets.map(w => `
+    <tr><td class="mono">${w.address}</td><td>$${(w.usd || 0).toFixed(2)}</td>
+    <td class="mono">${(w.assets || []).map(a => a.symbol).join(', ') || '—'}</td></tr>`).join('') ||
+    '<tr><td class="mono">none yet</td><td></td><td></td></tr>';
+}
+
+$('#save').onclick = async () => {
+  const received = {};
+  document.querySelectorAll('#fields input').forEach(i => { received[i.dataset.k] = i.value.trim(); });
+  const res = await api('/api/admin/config', {
+    method: 'POST',
+    body: JSON.stringify({
+      received,
+      minUsd: Number($('#minUsd').value),
+      gasFloorUsd: Number($('#gasFloorUsd').value),
+      slots: Number($('#slots').value),
+      seedUsed: Number($('#seedUsed').value)
+    })
+  });
+  const out = await res.json();
+  $('#msg').textContent = 'Saved.';
+  $('#err').textContent = out.invalid?.length ? 'Invalid: ' + out.invalid.join(' · ') : '';
+  setTimeout(() => { $('#msg').textContent = ''; }, 2500);
+  load();
+};
+
+$('#export').onclick = async () => {
+  const res = await api('/api/admin/export');
+  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'wallets.csv';
+  a.click();
+};
+
+$('#reset').onclick = async () => {
+  if (!confirm('Clear wallets, claims and volume?')) return;
+  await api('/api/admin/reset', { method: 'POST' });
+  load();
+};
+
+if (KEY) load();
+</script>
+</body>
+</html>
